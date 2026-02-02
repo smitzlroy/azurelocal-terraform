@@ -54,7 +54,8 @@ variable "custom_location_id" {
   nullable    = false
 
   validation {
-    condition     = can(regex("^/subscriptions/[a-f0-9-]+/resourceGroups/[^/]+/providers/Microsoft.ExtendedLocation/customLocations/[^/]+$", var.custom_location_id))
+    # Case-insensitive regex for Azure resource provider names
+    condition     = can(regex("(?i)^/subscriptions/[a-f0-9-]+/resourceGroups/[^/]+/providers/Microsoft\\.ExtendedLocation/customLocations/[^/]+$", var.custom_location_id))
     error_message = "custom_location_id must be a valid Custom Location resource ID."
   }
 }
@@ -80,7 +81,8 @@ variable "logical_network_id" {
   nullable    = false
 
   validation {
-    condition     = can(regex("^/subscriptions/[a-f0-9-]+/resourceGroups/[^/]+/providers/Microsoft.AzureStackHCI/logicalNetworks/[^/]+$", var.logical_network_id))
+    # Case-insensitive regex for Azure resource provider names
+    condition     = can(regex("(?i)^/subscriptions/[a-f0-9-]+/resourceGroups/[^/]+/providers/Microsoft\\.AzureStackHCI/logicalNetworks/[^/]+$", var.logical_network_id))
     error_message = "logical_network_id must be a valid Azure Local Logical Network resource ID."
   }
 }
@@ -176,15 +178,64 @@ variable "vm_size" {
   description = <<-EOT
     Default VM size for all VMs. Can be overridden per-VM in vm_instances.
     
-    Azure Local supports a subset of Azure VM sizes. Common sizes include:
-    - Standard_D2s_v3, Standard_D4s_v3, Standard_D8s_v3
-    - Standard_DS2_v2, Standard_DS3_v2
+    NOTE: Azure Local uses "Custom" VM size with explicit processors and memory.
+    This variable is maintained for compatibility but processors and memory_mb
+    are the actual values used.
     
-    Check your Azure Local configuration for available sizes.
+    Common reference sizes (for documentation):
+    - Standard_D2s_v3: 2 vCPUs, 8GB RAM
+    - Standard_D4s_v3: 4 vCPUs, 16GB RAM
+    - Standard_D8s_v3: 8 vCPUs, 32GB RAM
   EOT
   type        = string
   default     = "Standard_D2s_v3"
   nullable    = false
+}
+
+variable "vm_processors" {
+  description = <<-EOT
+    Number of virtual processors (vCPUs) for the VM.
+    
+    Azure Local uses explicit processor count rather than predefined VM sizes.
+    This value is used with vmSize="Custom" in the hardware profile.
+    
+    Minimum: 1
+    Maximum: Depends on your Azure Local host configuration
+  EOT
+  type        = number
+  default     = 2
+  nullable    = false
+
+  validation {
+    condition     = var.vm_processors >= 1 && var.vm_processors <= 128
+    error_message = "vm_processors must be between 1 and 128."
+  }
+}
+
+variable "vm_memory_mb" {
+  description = <<-EOT
+    Amount of memory in megabytes for the VM.
+    
+    Azure Local uses explicit memory allocation rather than predefined VM sizes.
+    This value is used with vmSize="Custom" in the hardware profile.
+    
+    Common values:
+    - 4096 (4 GB)
+    - 8192 (8 GB)
+    - 16384 (16 GB)
+    - 32768 (32 GB)
+    
+    Minimum: 512 MB
+    Maximum: Depends on your Azure Local host configuration
+  EOT
+  type        = number
+  default     = 8192
+  nullable    = false
+
+  validation {
+    condition     = var.vm_memory_mb >= 512 && var.vm_memory_mb <= 1048576
+    error_message = "vm_memory_mb must be between 512 and 1048576 (1 TB)."
+  }
 }
 
 # -----------------------------------------------------------------------------
@@ -209,7 +260,8 @@ variable "gallery_image_id" {
   default     = null
 
   validation {
-    condition     = var.gallery_image_id == null || can(regex("^/subscriptions/[a-f0-9-]+/resourceGroups/[^/]+/providers/Microsoft.AzureStackHCI/galleryImages/[^/]+$", var.gallery_image_id))
+    # Case-insensitive regex for Azure resource provider names
+    condition     = var.gallery_image_id == null || can(regex("(?i)^/subscriptions/[a-f0-9-]+/resourceGroups/[^/]+/providers/Microsoft\\.AzureStackHCI/galleryImages/[^/]+$", var.gallery_image_id))
     error_message = "gallery_image_id must be a valid Azure Local gallery image resource ID."
   }
 }

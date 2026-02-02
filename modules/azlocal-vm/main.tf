@@ -54,6 +54,10 @@ locals {
     }
   }
 
+  # VM hardware profile - Azure Local uses Custom vmSize with explicit values
+  vm_processors = var.vm_processors
+  vm_memory_mb  = var.vm_memory_mb
+
   # Validate that exactly one image source is provided
   has_gallery_image   = var.gallery_image_id != null
   has_image_reference = var.image_reference != null
@@ -219,16 +223,19 @@ resource "azapi_resource" "data_disk" {
 # - They use Custom Locations instead of Azure regions
 # - They use Logical Networks instead of VNets
 # - They use local gallery images
+#
+# The API schema differs from public Azure VMs - see Azure Verified Module:
+# https://registry.terraform.io/modules/Azure/avm-res-azurestackhci-virtualmachineinstance
 
 resource "azapi_resource" "vm" {
   for_each = local.vm_map
 
-  type      = "Microsoft.AzureStackHCI/virtualMachineInstances@2024-01-01"
+  # Using 2023-09-01-preview API which is well-documented in Azure Verified Modules
+  type      = "Microsoft.AzureStackHCI/virtualMachineInstances@2023-09-01-preview"
   name      = "default" # Azure Local VMs use "default" as the instance name
   parent_id = azapi_resource.arc_machine[each.key].id
 
   # Disable schema validation for Azure Local resources
-  # Azure Local VM schema differs from standard Azure VM resources
   schema_validation_enabled = false
 
   body = {
@@ -237,79 +244,53 @@ resource "azapi_resource" "vm" {
       name = var.custom_location_id
     }
     properties = {
-      # Hardware profile - VM size configuration
+      # Hardware profile - Azure Local uses different format than public Azure
+      # vmSize must be "Custom" with explicit processors and memoryMB
       hardwareProfile = {
-        vmSize = coalesce(each.value.size, var.vm_size)
+        vmSize     = "Custom"
+        processors = local.vm_processors
+        memoryMB   = local.vm_memory_mb
       }
 
       # OS profile - Authentication and customization
       osProfile = {
         computerName  = each.key
         adminUsername = coalesce(each.value.admin_username, var.admin_username)
+        adminPassword = var.admin_password
 
-        # Linux-specific configuration
+        # Linux SSH configuration
         linuxConfiguration = var.os_type == "Linux" ? {
-          provisionVMAgent = true
-          ssh = {
+          ssh = var.ssh_public_key != null ? {
             publicKeys = [
               {
                 path    = "/home/${coalesce(each.value.admin_username, var.admin_username)}/.ssh/authorized_keys"
                 keyData = var.ssh_public_key
               }
             ]
-          }
+          } : {}
         } : null
 
-        # Windows-specific configuration
+        # Windows configuration
         windowsConfiguration = var.os_type == "Windows" ? {
           provisionVMAgent       = true
-          enableAutomaticUpdates = true
-          timeZone               = var.timezone
-          winRM = var.winrm_enable ? {
-            listeners = [
-              {
-                protocol = "Http"
-              }
-            ]
-          } : null
+          provisionVMConfigAgent = true
+          ssh                    = {}
         } : null
-
-        # Admin password for Windows
-        adminPassword = var.os_type == "Windows" ? var.admin_password : null
       }
 
-      # Storage profile - Image and disk configuration
+      # Storage profile - Simplified for Azure Local
       storageProfile = {
-        # Image reference - either gallery image ID or marketplace reference
-        imageReference = local.has_gallery_image ? {
+        imageReference = {
           id = var.gallery_image_id
-          } : {
-          publisher = var.image_reference.publisher
-          offer     = var.image_reference.offer
-          sku       = var.image_reference.sku
-          version   = var.image_reference.version
         }
-
-        # OS disk configuration
         osDisk = {
-          osType       = var.os_type
-          createOption = "FromImage"
-          diskSizeGB   = var.os_disk_size_gb
-          managedDisk = {
-            storageAccountType = var.os_disk_type
-          }
+          osType = var.os_type
         }
-
-        # Data disks - reference the separately created disks
+        # Data disks as references to separately created disks
         dataDisks = [
-          for disk in var.data_disks : {
-            lun          = disk.lun
-            createOption = "Attach"
-            caching      = disk.caching
-            managedDisk = {
-              id = azapi_resource.data_disk["${each.key}-datadisk-${disk.lun}"].id
-            }
-          }
+          for key, disk in azapi_resource.data_disk : {
+            id = disk.id
+          } if startswith(key, each.key)
         ]
       }
 
@@ -321,14 +302,10 @@ resource "azapi_resource" "vm" {
           }
         ]
       }
-
-      # Security profile (optional - for Trusted Launch / Confidential VMs)
-      securityProfile = null
     }
-    tags = merge(local.common_tags, each.value.tags)
   }
 
-  # Ensure NIC and data disks are created first
+  # Ensure NIC, data disks, and Arc machine are created first
   depends_on = [
     azapi_resource.nic,
     azapi_resource.data_disk,
@@ -337,10 +314,10 @@ resource "azapi_resource" "vm" {
     azapi_resource.arc_machine
   ]
 
-  # Timeouts for VM operations
+  # Timeouts for VM operations - Azure Local VMs can take longer
   timeouts {
-    create = "30m"
-    update = "30m"
+    create = "2h"
+    update = "1h"
     delete = "30m"
   }
 }

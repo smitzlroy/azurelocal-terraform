@@ -104,10 +104,35 @@ variable "vm_size" {
   description = <<-EOT
     VM size. Check your Azure Local configuration for available sizes.
     
+    NOTE: Azure Local uses "Custom" VM size with explicit processors and memory.
+    This variable is maintained for compatibility reference.
+    
     Common sizes: Standard_D2s_v3, Standard_D4s_v3, Standard_D8s_v3
   EOT
   type        = string
   default     = "Standard_D2s_v3"
+  nullable    = false
+}
+
+variable "vm_processors" {
+  description = <<-EOT
+    Number of virtual processors (vCPUs) for the VM.
+    
+    Azure Local uses explicit processor count rather than predefined VM sizes.
+  EOT
+  type        = number
+  default     = 2
+  nullable    = false
+}
+
+variable "vm_memory_mb" {
+  description = <<-EOT
+    Amount of memory in megabytes for the VM.
+    
+    Common values: 4096 (4 GB), 8192 (8 GB), 16384 (16 GB)
+  EOT
+  type        = number
+  default     = 8192
   nullable    = false
 }
 
