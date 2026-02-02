@@ -105,10 +105,10 @@ module "linux_vm" {
   location           = var.location
 
   # VM configuration
-  vm_name        = var.vm_name
-  vm_size        = var.vm_size
-  vm_count       = 1
-  os_type        = "Linux"
+  vm_name  = var.vm_name
+  vm_size  = var.vm_size
+  vm_count = 1
+  os_type  = "Linux"
 
   # Authentication - SSH key (required for Linux)
   admin_username = var.admin_username

@@ -30,7 +30,7 @@ output "arc_machine_id" {
     - Azure Update Manager
     - Microsoft Defender for Cloud
   EOT
-  value = module.linux_vm.arc_machine_ids[keys(module.linux_vm.arc_machine_ids)[0]]
+  value       = module.linux_vm.arc_machine_ids[keys(module.linux_vm.arc_machine_ids)[0]]
 }
 
 output "nic_id" {
@@ -57,7 +57,7 @@ output "private_ip" {
     
     For VMs with static IPs, this reflects the configured IP.
   EOT
-  value = module.linux_vm.private_ips[keys(module.linux_vm.private_ips)[0]]
+  value       = module.linux_vm.private_ips[keys(module.linux_vm.private_ips)[0]]
 }
 
 output "ssh_command" {
@@ -72,7 +72,7 @@ output "ssh_command" {
     Example:
       ssh -i ~/.ssh/id_rsa azureadmin@<IP_ADDRESS>
   EOT
-  value = module.linux_vm.ssh_connection_commands[keys(module.linux_vm.ssh_connection_commands)[0]]
+  value       = module.linux_vm.ssh_connection_commands[keys(module.linux_vm.ssh_connection_commands)[0]]
 }
 
 # -----------------------------------------------------------------------------

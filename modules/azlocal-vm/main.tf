@@ -55,9 +55,9 @@ locals {
   }
 
   # Validate that exactly one image source is provided
-  has_gallery_image    = var.gallery_image_id != null
-  has_image_reference  = var.image_reference != null
-  image_source_count   = (local.has_gallery_image ? 1 : 0) + (local.has_image_reference ? 1 : 0)
+  has_gallery_image   = var.gallery_image_id != null
+  has_image_reference = var.image_reference != null
+  image_source_count  = (local.has_gallery_image ? 1 : 0) + (local.has_image_reference ? 1 : 0)
 
   # Common tags to apply to all resources
   common_tags = merge(var.tags, {
@@ -123,6 +123,10 @@ resource "azapi_resource" "nic" {
 
   # Azure Local resources require Extended Location (Custom Location)
   # This is a key difference from public Azure resources
+  # Use schema_validation_enabled = false for Azure Local resources
+  # as the azapi provider schema may not fully match Azure Local API
+  schema_validation_enabled = false
+
   body = {
     extendedLocation = {
       type = "CustomLocation"
@@ -134,15 +138,17 @@ resource "azapi_resource" "nic" {
       ipConfigurations = [
         {
           name = "ipconfig1"
-          properties = {
-            subnet = {
-              id = var.logical_network_id
-            }
-            # Static IP assignment (optional)
-            # If not specified, DHCP is used (if Logical Network supports it)
-            privateIPAddress = each.value.static_ip
-            privateIPAllocationMethod = each.value.static_ip != null ? "Static" : "Dynamic"
-          }
+          properties = merge(
+            {
+              subnet = {
+                id = var.logical_network_id
+              }
+            },
+            # Only include privateIPAddress if static IP is specified
+            each.value.static_ip != null ? {
+              privateIPAddress = each.value.static_ip
+            } : {}
+          )
         }
       ]
       # DNS servers override (optional)
@@ -150,11 +156,10 @@ resource "azapi_resource" "nic" {
         dnsServers = var.dns_servers
       } : null
     }
+    tags = merge(local.common_tags, each.value.tags, {
+      VMName = each.key
+    })
   }
-
-  tags = merge(local.common_tags, each.value.tags, {
-    "VMName" = each.key
-  })
 
   depends_on = [
     terraform_data.validate_image_source
@@ -172,10 +177,10 @@ resource "azapi_resource" "data_disk" {
     for pair in flatten([
       for vm_name, vm_config in local.vm_map : [
         for disk in var.data_disks : {
-          key      = "${vm_name}-datadisk-${disk.lun}"
-          vm_name  = vm_name
-          disk     = disk
-          vm_tags  = vm_config.tags
+          key     = "${vm_name}-datadisk-${disk.lun}"
+          vm_name = vm_name
+          disk    = disk
+          vm_tags = vm_config.tags
         }
       ]
     ]) : pair.key => pair
@@ -186,6 +191,9 @@ resource "azapi_resource" "data_disk" {
   location  = var.location
   parent_id = var.resource_group_id
 
+  # Disable schema validation for Azure Local resources
+  schema_validation_enabled = false
+
   body = {
     extendedLocation = {
       type = "CustomLocation"
@@ -195,12 +203,11 @@ resource "azapi_resource" "data_disk" {
       diskSizeGB = each.value.disk.size_gb
       dynamic    = true
     }
+    tags = merge(local.common_tags, each.value.vm_tags, {
+      VMName = each.value.vm_name
+      LUN    = tostring(each.value.disk.lun)
+    })
   }
-
-  tags = merge(local.common_tags, each.value.vm_tags, {
-    "VMName" = each.value.vm_name
-    "LUN"    = tostring(each.value.disk.lun)
-  })
 }
 
 # -----------------------------------------------------------------------------
@@ -217,8 +224,12 @@ resource "azapi_resource" "vm" {
   for_each = local.vm_map
 
   type      = "Microsoft.AzureStackHCI/virtualMachineInstances@2024-01-01"
-  name      = "default"  # Azure Local VMs use "default" as the instance name
-  parent_id = "${var.resource_group_id}/providers/Microsoft.HybridCompute/machines/${each.key}"
+  name      = "default" # Azure Local VMs use "default" as the instance name
+  parent_id = azapi_resource.arc_machine[each.key].id
+
+  # Disable schema validation for Azure Local resources
+  # Azure Local VM schema differs from standard Azure VM resources
+  schema_validation_enabled = false
 
   body = {
     extendedLocation = {
@@ -251,9 +262,9 @@ resource "azapi_resource" "vm" {
 
         # Windows-specific configuration
         windowsConfiguration = var.os_type == "Windows" ? {
-          provisionVMAgent = true
+          provisionVMAgent       = true
           enableAutomaticUpdates = true
-          timeZone = var.timezone
+          timeZone               = var.timezone
           winRM = var.winrm_enable ? {
             listeners = [
               {
@@ -272,7 +283,7 @@ resource "azapi_resource" "vm" {
         # Image reference - either gallery image ID or marketplace reference
         imageReference = local.has_gallery_image ? {
           id = var.gallery_image_id
-        } : {
+          } : {
           publisher = var.image_reference.publisher
           offer     = var.image_reference.offer
           sku       = var.image_reference.sku
@@ -281,9 +292,9 @@ resource "azapi_resource" "vm" {
 
         # OS disk configuration
         osDisk = {
-          osType = var.os_type
+          osType       = var.os_type
           createOption = "FromImage"
-          diskSizeGB = var.os_disk_size_gb
+          diskSizeGB   = var.os_disk_size_gb
           managedDisk = {
             storageAccountType = var.os_disk_type
           }
@@ -314,16 +325,16 @@ resource "azapi_resource" "vm" {
       # Security profile (optional - for Trusted Launch / Confidential VMs)
       securityProfile = null
     }
+    tags = merge(local.common_tags, each.value.tags)
   }
-
-  tags = merge(local.common_tags, each.value.tags)
 
   # Ensure NIC and data disks are created first
   depends_on = [
     azapi_resource.nic,
     azapi_resource.data_disk,
     terraform_data.validate_linux_auth,
-    terraform_data.validate_windows_auth
+    terraform_data.validate_windows_auth,
+    azapi_resource.arc_machine
   ]
 
   # Timeouts for VM operations
@@ -349,6 +360,9 @@ resource "azapi_resource" "arc_machine" {
   location  = var.location
   parent_id = var.resource_group_id
 
+  # Disable schema validation for preview API
+  schema_validation_enabled = false
+
   # The Arc machine is a prerequisite for the VM instance
   # It will be populated with details once the VM is created
   body = {
@@ -356,7 +370,6 @@ resource "azapi_resource" "arc_machine" {
     identity = {
       type = "SystemAssigned"
     }
+    tags = merge(local.common_tags, each.value.tags)
   }
-
-  tags = merge(local.common_tags, each.value.tags)
 }

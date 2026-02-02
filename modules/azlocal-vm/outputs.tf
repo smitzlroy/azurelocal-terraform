@@ -146,9 +146,9 @@ output "ssh_connection_commands" {
     - Direct network access
   EOT
   value = var.os_type == "Linux" ? {
-    for name, config in local.vm_map : name => config.static_ip != null ? 
-      "ssh ${coalesce(config.admin_username, var.admin_username)}@${config.static_ip}" :
-      "ssh ${coalesce(config.admin_username, var.admin_username)}@<DHCP_IP> # Query NIC for actual IP"
+    for name, config in local.vm_map : name => config.static_ip != null ?
+    "ssh ${coalesce(config.admin_username, var.admin_username)}@${config.static_ip}" :
+    "ssh ${coalesce(config.admin_username, var.admin_username)}@<DHCP_IP> # Query NIC for actual IP"
   } : {}
 }
 
@@ -174,14 +174,14 @@ output "rdp_connection_info" {
 output "deployment_summary" {
   description = "Summary of the Azure Local VM deployment."
   value = {
-    total_vms           = length(local.vm_map)
-    vm_names            = keys(local.vm_map)
-    os_type             = var.os_type
-    location            = var.location
-    resource_group      = local.resource_group_name
-    custom_location_id  = var.custom_location_id
-    logical_network_id  = var.logical_network_id
-    data_disks_per_vm   = length(var.data_disks)
-    static_ip_count     = length([for c in local.vm_map : c if c.static_ip != null])
+    total_vms          = length(local.vm_map)
+    vm_names           = keys(local.vm_map)
+    os_type            = var.os_type
+    location           = var.location
+    resource_group     = local.resource_group_name
+    custom_location_id = var.custom_location_id
+    logical_network_id = var.logical_network_id
+    data_disks_per_vm  = length(var.data_disks)
+    static_ip_count    = length([for c in local.vm_map : c if c.static_ip != null])
   }
 }
