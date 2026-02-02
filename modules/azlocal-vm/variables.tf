@@ -483,7 +483,7 @@ variable "os_disk_size_gb" {
   default     = null
 
   validation {
-    condition     = var.os_disk_size_gb == null || (var.os_disk_size_gb >= 30 && var.os_disk_size_gb <= 4096)
+    condition     = var.os_disk_size_gb == null ? true : (var.os_disk_size_gb >= 30 && var.os_disk_size_gb <= 4096)
     error_message = "os_disk_size_gb must be between 30 and 4096 GB."
   }
 }
@@ -569,5 +569,30 @@ variable "tags" {
   EOT
   type        = map(string)
   default     = {}
+  nullable    = false
+}
+
+# -----------------------------------------------------------------------------
+# Guest Management and Arc Agent
+# -----------------------------------------------------------------------------
+
+variable "enable_guest_management" {
+  description = <<-EOT
+    Enable guest management and install the Azure Connected Machine agent.
+    
+    When enabled, this will:
+    1. Mount the mocguestagent ISO to the VM
+    2. Wait for the guest agent to start
+    3. Enable guest management to install the Arc Connected Machine agent
+    
+    This enables:
+    - SSH access via Azure Arc (no direct network access needed)
+    - VM extensions
+    - Azure management capabilities
+    
+    IMPORTANT: The VM must have outbound internet access to download the Arc agent.
+  EOT
+  type        = bool
+  default     = true
   nullable    = false
 }

@@ -259,7 +259,11 @@ resource "azapi_resource" "vm" {
         adminPassword = var.admin_password
 
         # Linux SSH configuration
+        # provisionVMAgent: Installs the MOC guest agent (mocguestagent)
+        # provisionVMConfigAgent: Mounts the ISO and enables guest management
         linuxConfiguration = var.os_type == "Linux" ? {
+          provisionVMAgent       = true
+          provisionVMConfigAgent = true
           ssh = var.ssh_public_key != null ? {
             publicKeys = [
               {
@@ -271,6 +275,8 @@ resource "azapi_resource" "vm" {
         } : null
 
         # Windows configuration
+        # provisionVMAgent: Installs the MOC guest agent (mocguestagent)
+        # provisionVMConfigAgent: Mounts the ISO and enables guest management
         windowsConfiguration = var.os_type == "Windows" ? {
           provisionVMAgent       = true
           provisionVMConfigAgent = true
@@ -320,6 +326,89 @@ resource "azapi_resource" "vm" {
     update = "1h"
     delete = "30m"
   }
+}
+
+# -----------------------------------------------------------------------------
+# Guest Management Enablement
+# -----------------------------------------------------------------------------
+# CONCEPT: Azure Local VMs have two agents:
+# 
+# 1. MOC Guest Agent (mocguestagent):
+#    - Provisioned automatically when provisionVMConfigAgent=true
+#    - Communicates between Azure and the VM
+#    - Required for guest management
+#
+# 2. Azure Connected Machine Agent (Arc Agent):
+#    - Installed when guest management is enabled via --enable-agent true
+#    - Enables full Azure Arc capabilities (SSH, extensions, management)
+#    - Requires the MOC Guest Agent to be running first
+#
+# This resource waits for the guest agent and enables Arc agent installation.
+
+resource "terraform_data" "enable_guest_management" {
+  for_each = var.enable_guest_management ? local.vm_map : {}
+
+  # Trigger re-run if VM changes
+  triggers_replace = [
+    azapi_resource.vm[each.key].id
+  ]
+
+  # Wait for VM to be fully provisioned, then enable guest management
+  provisioner "local-exec" {
+    interpreter = ["pwsh", "-Command"]
+    command     = <<-EOT
+      $ErrorActionPreference = "Stop"
+      $vmName = "${each.key}"
+      $rgName = "${local.resource_group_name}"
+      
+      Write-Host "Waiting for VM '$vmName' guest agent to become ready..."
+      
+      # Wait for guest agent to start (max 10 minutes)
+      $maxAttempts = 20
+      $attempt = 0
+      $agentReady = $false
+      
+      while (-not $agentReady -and $attempt -lt $maxAttempts) {
+        $attempt++
+        Start-Sleep -Seconds 30
+        
+        try {
+          $vmStatus = az stack-hci-vm show --name $vmName --resource-group $rgName -o json 2>$null | ConvertFrom-Json
+          $statuses = $vmStatus.properties.instanceView.vmAgent.statuses
+          
+          if ($statuses -and $statuses.Count -gt 0) {
+            $displayStatus = $statuses[0].displayStatus
+            Write-Host "Attempt $attempt/$maxAttempts - Guest agent status: $displayStatus"
+            
+            if ($displayStatus -eq "Connected" -or $displayStatus -eq "Active") {
+              $agentReady = $true
+              Write-Host "Guest agent is ready!"
+            }
+          } else {
+            Write-Host "Attempt $attempt/$maxAttempts - Guest agent not yet reporting status, enabling vm-config-agent..."
+            # Mount the guest agent ISO if not already done
+            az stack-hci-vm update --name $vmName --resource-group $rgName --enable-vm-config-agent true 2>$null
+          }
+        } catch {
+          Write-Host "Attempt $attempt/$maxAttempts - Waiting for VM to be ready..."
+        }
+      }
+      
+      if (-not $agentReady) {
+        Write-Warning "Guest agent did not become ready within timeout. Proceeding anyway..."
+      }
+      
+      # Enable guest management (installs Arc Connected Machine agent)
+      Write-Host "Enabling guest management (Arc agent installation)..."
+      az stack-hci-vm update --name $vmName --resource-group $rgName --enable-agent true
+      
+      Write-Host "Guest management enabled for VM '$vmName'"
+    EOT
+  }
+
+  depends_on = [
+    azapi_resource.vm
+  ]
 }
 
 # -----------------------------------------------------------------------------
