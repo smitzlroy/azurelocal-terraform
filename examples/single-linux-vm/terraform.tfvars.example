@@ -1,0 +1,86 @@
+# =============================================================================
+# Terraform Variables Example File
+# =============================================================================
+# Copy this file to terraform.tfvars and fill in your values.
+#
+# IMPORTANT: Never commit terraform.tfvars with real values to source control!
+# Add terraform.tfvars to your .gitignore file.
+#
+# Get the required IDs from your Azure Local infrastructure administrator.
+# =============================================================================
+
+# -----------------------------------------------------------------------------
+# Azure Subscription
+# -----------------------------------------------------------------------------
+
+# Your Azure subscription ID
+# Get this by running: az account show --query id -o tsv
+subscription_id = "00000000-0000-0000-0000-000000000000"
+
+# -----------------------------------------------------------------------------
+# Azure Local Infrastructure IDs
+# -----------------------------------------------------------------------------
+# These IDs must be obtained from your Azure Local infrastructure administrator.
+
+# Full ARM ID of the resource group
+# Get this by running: az group show --name "<rg-name>" --query id -o tsv
+resource_group_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/mylocal-rg"
+
+# Custom Location ID - represents your Azure Local cluster
+# Get this by running: az customlocation show --name "<name>" --resource-group "<rg>" --query id -o tsv
+custom_location_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/mylocal-rg/providers/Microsoft.ExtendedLocation/customLocations/mylocal-cl"
+
+# Logical Network ID - the network for VM connectivity
+# Get this by running: az stack-hci-vm network lnet show --name "<name>" --resource-group "<rg>" --query id -o tsv
+logical_network_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/mylocal-rg/providers/Microsoft.AzureStackHCI/logicalNetworks/mylocal-lnet"
+
+# Azure region where Azure Local is registered
+location = "eastus"
+
+# -----------------------------------------------------------------------------
+# VM Configuration
+# -----------------------------------------------------------------------------
+
+# Name for your Linux VM
+vm_name = "mylinuxvm"
+
+# VM size (check your Azure Local configuration for available sizes)
+vm_size = "Standard_D2s_v3"
+
+# Administrator username for SSH access
+admin_username = "azureadmin"
+
+# SSH public key - paste the contents of your public key file
+# Create a key pair: ssh-keygen -t rsa -b 4096 -f ~/.ssh/azurelocal_rsa
+# Then paste the contents of ~/.ssh/azurelocal_rsa.pub here
+ssh_public_key = "ssh-rsa AAAA... your-email@example.com"
+
+# -----------------------------------------------------------------------------
+# Image Configuration
+# -----------------------------------------------------------------------------
+
+# Gallery image ID - a Linux image on your Azure Local cluster
+# List images: az stack-hci-vm image list --resource-group "<rg>" --query "[].id" -o tsv
+gallery_image_id = "/subscriptions/00000000-0000-0000-0000-000000000000/resourceGroups/mylocal-rg/providers/Microsoft.AzureStackHCI/galleryImages/ubuntu-22.04-lts"
+
+# -----------------------------------------------------------------------------
+# Network Configuration (Optional)
+# -----------------------------------------------------------------------------
+
+# Static IP address (optional - leave commented for DHCP)
+# Must be within the Logical Network's address range
+# static_ip = "192.168.1.10"
+
+# DNS servers (optional - leave commented to use Logical Network defaults)
+# dns_servers = ["10.0.0.5", "10.0.0.6"]
+
+# -----------------------------------------------------------------------------
+# Tags (Optional)
+# -----------------------------------------------------------------------------
+
+tags = {
+  Environment = "Development"
+  Project     = "AzureLocalDemo"
+  Owner       = "Platform Team"
+  ManagedBy   = "Terraform"
+}

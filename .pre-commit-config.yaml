@@ -1,0 +1,103 @@
+# =============================================================================
+# Pre-commit Configuration
+# =============================================================================
+# This file configures pre-commit hooks for code quality and consistency.
+#
+# Installation:
+#   pip install pre-commit
+#   pre-commit install
+#
+# Manual run:
+#   pre-commit run --all-files
+# =============================================================================
+
+repos:
+  # -----------------------------------------------------------------------------
+  # General file checks
+  # -----------------------------------------------------------------------------
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.5.0
+    hooks:
+      - id: trailing-whitespace
+        args: [--markdown-linebreak-ext=md]
+      - id: end-of-file-fixer
+      - id: check-yaml
+        args: [--allow-multiple-documents]
+      - id: check-json
+      - id: check-merge-conflict
+      - id: detect-private-key
+      - id: no-commit-to-branch
+        args: [--branch, main]
+
+  # -----------------------------------------------------------------------------
+  # Terraform hooks
+  # -----------------------------------------------------------------------------
+  - repo: https://github.com/antonbabenko/pre-commit-terraform
+    rev: v1.86.0
+    hooks:
+      # Format Terraform files
+      - id: terraform_fmt
+        args:
+          - --args=-recursive
+
+      # Validate Terraform configuration
+      - id: terraform_validate
+        args:
+          - --hook-config=--retry-once-with-cleanup=true
+          - --tf-init-args=-backend=false
+
+      # Check Terraform documentation
+      - id: terraform_docs
+        args:
+          - --hook-config=--path-to-file=README.md
+          - --hook-config=--add-to-existing-file=true
+          - --hook-config=--create-file-if-not-exist=true
+
+      # Security scanning with tfsec
+      - id: terraform_tfsec
+        args:
+          - --args=--soft-fail
+
+      # Linting with tflint
+      - id: terraform_tflint
+        args:
+          - --args=--config=__GIT_WORKING_DIR__/.tflint.hcl
+
+  # -----------------------------------------------------------------------------
+  # Markdown linting
+  # -----------------------------------------------------------------------------
+  - repo: https://github.com/igorshubovych/markdownlint-cli
+    rev: v0.39.0
+    hooks:
+      - id: markdownlint
+        args:
+          - --fix
+          - --disable
+          - MD013  # Line length
+          - MD033  # Inline HTML
+          - MD041  # First line heading
+          - --
+
+  # -----------------------------------------------------------------------------
+  # YAML linting
+  # -----------------------------------------------------------------------------
+  - repo: https://github.com/adrienverge/yamllint.git
+    rev: v1.33.0
+    hooks:
+      - id: yamllint
+        args:
+          - -d
+          - "{extends: relaxed, rules: {line-length: {max: 150}}}"
+
+# -----------------------------------------------------------------------------
+# CI Configuration
+# -----------------------------------------------------------------------------
+ci:
+  autofix_commit_msg: |
+    [pre-commit.ci] auto fixes from pre-commit hooks
+  autofix_prs: true
+  autoupdate_branch: ''
+  autoupdate_commit_msg: '[pre-commit.ci] pre-commit autoupdate'
+  autoupdate_schedule: weekly
+  skip: []
+  submodules: false
