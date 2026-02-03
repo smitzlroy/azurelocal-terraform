@@ -7,6 +7,16 @@ Production-quality Terraform module for deploying Virtual Machines on [Azure Loc
 
 > **Familiar Developer Experience**: This module follows the same patterns as Microsoft's [AKS Arc Terraform documentation](https://learn.microsoft.com/en-us/azure/aks/aksarc/create-clusters-terraform), providing a consistent experience for users who already deploy resources to Azure Local via Terraform.
 
+## Features
+
+- ✅ **Linux & Windows VMs** with SSH key or password authentication
+- ✅ **Azure Arc Enabled** - Automatic Arc agent installation for remote management
+- ✅ **SSH via Azure Arc** - Connect to VMs without direct network access
+- ✅ **Cloud-init Support** - Customise Linux VMs at first boot
+- ✅ **Static IP or DHCP** - Flexible networking options
+- ✅ **Data Disks** - Attach multiple data disks per VM
+- ✅ **Guest Management** - Automatic guest agent and Arc Connected Machine agent
+
 ## Overview
 
 This repository contains a Terraform module and examples for deploying VMs to Azure Local, enabling customers who already use Terraform in public Azure to create Azure Local resources with a similar developer experience.
@@ -19,6 +29,75 @@ Azure Local is Microsoft's hybrid cloud solution that runs Azure services on you
 - **Logical Network**: Network connectivity for VMs (similar to VNet/Subnet in public Azure)
 - **Arc Resource Bridge**: Enables Azure Arc integration with Azure Local
 - **Gallery Images**: VM images stored locally on your Azure Local cluster
+
+## Architecture: Azure Local VM Agents
+
+Azure Local VMs require **two agents** for full Azure Arc functionality:
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│                         AZURE LOCAL VM AGENTS                                │
+├─────────────────────────────────────────────────────────────────────────────┤
+│                                                                             │
+│  1. MOC GUEST AGENT (mocguestagent)                                         │
+│     ├── PURPOSE: Communication bridge between Azure and the VM              │
+│     ├── INSTALLATION: Via ISO mounted at VM creation                        │
+│     ├── ENABLED BY: provisionVMConfigAgent = true                           │
+│     └── REQUIRED FOR: Enabling guest management                             │
+│                                                                             │
+│  2. AZURE CONNECTED MACHINE AGENT (Arc Agent)                               │
+│     ├── PURPOSE: Full Azure Arc capabilities                                │
+│     ├── INSTALLATION: Installed BY mocguestagent when guest mgmt enabled    │
+│     ├── ENABLED BY: az stack-hci-vm update --enable-agent true              │
+│     └── ENABLES: SSH via Arc, VM extensions, Azure management               │
+│                                                                             │
+└─────────────────────────────────────────────────────────────────────────────┘
+
+                          INSTALLATION FLOW
+                          
+  VM Creation ──► provisionVMConfigAgent=true ──► MOC Guest Agent starts
+       │                                                   │
+       │                                                   ▼
+       │                                          Status: "Connected"
+       │                                                   │
+       │         enable_guest_management = true            │
+       │         (automatic in this module)                ▼
+       └──────────────────────────────────────────► Arc Agent Installed
+                                                    SSH via Arc available!
+```
+
+This module **automatically handles both agents** - you don't need to do anything manually.
+
+## Connecting to VMs
+
+### Option 1: SSH via Azure Arc (Recommended)
+
+No direct network access required - works from anywhere with Azure CLI:
+
+```bash
+# SSH using Azure Arc
+az ssh vm --resource-group <resource-group> \
+          --name <vm-name> \
+          --local-user <username> \
+          --private-key-file <path-to-private-key>
+
+# Example
+az ssh vm -g myResourceGroup -n myVM --local-user azureadmin --private-key-file ~/.ssh/id_rsa
+```
+
+### Option 2: Direct SSH (Requires Network Access)
+
+If you have network connectivity to the Logical Network:
+
+```bash
+# Get the VM's IP address
+az stack-hci-vm network nic show --name <vm-name>-nic \
+  --resource-group <resource-group> \
+  --query "properties.ipConfigurations[0].properties.privateIpAddress" -o tsv
+
+# SSH directly
+ssh -i <private-key> <username>@<ip-address>
+```
 
 ## Quick Start
 
@@ -130,6 +209,20 @@ az sshkey create --name "mySSHKey" --resource-group "<rg>"
 - **Single VM**: Deploy one VM with `vm_count = 1`
 - **Multiple Identical VMs**: Scale out with `vm_count = N`
 - **Heterogeneous VMs**: Use `vm_instances` map for per-VM configuration
+
+### Key Variables
+
+| Variable | Description | Default |
+|----------|-------------|---------|
+| `vm_name` | Base name for VMs | Required |
+| `vm_count` | Number of identical VMs | `1` |
+| `vm_processors` | vCPUs per VM | `2` |
+| `vm_memory_mb` | Memory in MB | `8192` |
+| `os_type` | `"Linux"` or `"Windows"` | Required |
+| `admin_username` | Administrator username | Required |
+| `ssh_public_key` | SSH public key (Linux) | Required for Linux |
+| `admin_password` | Admin password (Windows) | Required for Windows |
+| `enable_guest_management` | Install Arc agent | `true` |
 
 ### Supported Configurations
 
@@ -258,7 +351,25 @@ vm_instances = {
 | Custom Location not found | Verify ID and access permissions |
 | Gallery Image not found | Ensure image is downloaded to cluster |
 | VM creation timeout | Check Azure Local cluster health |
-| Cannot connect to VM | Verify network connectivity to Logical Network |
+| Cannot connect to VM | Use SSH via Arc (see above) |
+| Arc agent not connected | Check `az connectedmachine show` status |
+| Guest agent not running | Verify VM has outbound internet access |
+
+### Checking VM Status
+
+```bash
+# Check VM status
+az stack-hci-vm show --name <vm-name> --resource-group <rg> \
+  --query "{powerState: properties.status.powerState, provisioningState: properties.provisioningState}"
+
+# Check guest agent status
+az stack-hci-vm show --name <vm-name> --resource-group <rg> \
+  --query "properties.instanceView.vmAgent"
+
+# Check Arc agent status (should show "Connected")
+az connectedmachine show --name <vm-name> --resource-group <rg> \
+  --query "{status: status, agentVersion: agentVersion}"
+```
 
 ### Getting Logs
 
