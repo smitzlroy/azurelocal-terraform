@@ -14,6 +14,7 @@
 # .tfstate files
 *.tfstate
 *.tfstate.*
+*.tfstate.backup
 
 # Crash log files
 crash.log
@@ -22,6 +23,8 @@ crash.*.log
 # Exclude all .tfvars files (may contain sensitive data)
 *.tfvars
 *.tfvars.json
+**/terraform.tfvars
+**/secrets.auto.tfvars
 
 # Keep example tfvars
 !*.tfvars.example
@@ -102,10 +105,14 @@ credentials
 credentials.json
 .env
 .env.*
+.env.local
+.env.*.local
+*.env
 
 # Azure
 azure.auth
 azureauth.json
+serviceprincipal.json
 
 # -----------------------------------------------------------------------------
 # Build / Output
