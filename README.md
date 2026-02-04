@@ -122,41 +122,126 @@ terraform plan -out main.tfplan
 terraform apply main.tfplan
 ```
 
-## Repository Structure
-
-```
-.
-├── modules/
-│   └── azlocal-vm/           # Main VM module
-│       ├── main.tf           # Resource definitions
-│       ├── variables.tf      # Input variables
-│       ├── outputs.tf        # Output values
-│       ├── versions.tf       # Provider constraints
-│       └── README.md         # Module documentation
-├── examples/
-│   └── single-linux-vm/      # Single Linux VM example
-│       ├── main.tf
-│       ├── variables.tf
-│       ├── outputs.tf
-│       ├── providers.tf
-│       ├── terraform.tfvars.example
-│       └── README.md
-├── Makefile                  # Build automation
-├── .pre-commit-config.yaml   # Pre-commit hooks
-├── .gitignore
-└── README.md                 # This file
-```
-
 ## Concept Mapping: Public Azure vs Azure Local
+
+This table helps customers understand what changes when moving Terraform configurations from public Azure to Azure Local.
+
+### Infrastructure & Location
 
 | Public Azure | Azure Local | Notes |
 |-------------|-------------|-------|
-| Azure Region | Custom Location | Represents your on-prem cluster |
-| Virtual Network | Logical Network | Maps to physical/SDN network |
-| Subnet | Logical Network | Flat networks (no subnet hierarchy) |
-| Azure VM Image | Gallery Image | Images stored locally |
-| `azurerm_virtual_machine` | `azapi_resource` (stack-hci-vm) | Different resource type |
-| Network Security Group | NSG (2506+) | Supported on Azure Local 2506+ |
+| Azure Region (e.g., `westeurope`) | Custom Location | Represents your on-prem Azure Local cluster |
+| Availability Zone | Cluster Node | HA via cluster failover, not zones |
+| Availability Set | N/A | Use cluster-level HA instead |
+| Resource Group | Resource Group | Same concept, same resource |
+| Subscription | Subscription | Same concept, cluster registered to subscription |
+
+### Compute
+
+| Public Azure | Azure Local | Notes |
+|-------------|-------------|-------|
+| `azurerm_virtual_machine` | `azapi_resource` (virtualMachineInstances) | Must use azapi provider |
+| `azurerm_linux_virtual_machine` | `azapi_resource` + `os_type = "Linux"` | Unified resource, OS specified in properties |
+| `azurerm_windows_virtual_machine` | `azapi_resource` + `os_type = "Windows"` | Unified resource, OS specified in properties |
+| VM Size (e.g., `Standard_D4s_v3`) | `vmSize = "Custom"` + processors/memoryMB | Explicit vCPU and memory, not SKU names |
+| Azure VM Agent | MOC Guest Agent + Arc Agent | Two agents required (see architecture above) |
+| VM Extensions | Arc VM Extensions | Installed via Arc Connected Machine agent |
+| Azure Compute Gallery | Azure Local Gallery Images | Images stored on cluster storage |
+| Marketplace Image | Marketplace Gallery Image | Must be downloaded to cluster first |
+| Custom Image (VHD) | Gallery Image from VHD | Upload VHD to cluster storage |
+| VM Scale Sets | N/A | Use multiple VMs with Terraform count/for_each |
+| Spot VMs | N/A | Not applicable to on-premises |
+| Reserved Instances | N/A | You own the hardware |
+
+### Networking
+
+| Public Azure | Azure Local | Notes |
+|-------------|-------------|-------|
+| Virtual Network (VNet) | Logical Network | Maps to physical or SDN network |
+| Subnet | Logical Network | Flat network model (no subnet hierarchy) |
+| Network Interface (NIC) | Network Interface | Same concept, different API |
+| Public IP | N/A (use Arc SSH) | No public IPs; use Azure Arc for remote access |
+| Private IP (Dynamic) | DHCP from Logical Network | Logical Network must have DHCP scope |
+| Private IP (Static) | Static IP from Logical Network | IP must be in Logical Network range |
+| Network Security Group | NSG (Azure Local 2506+) | Supported on newer versions |
+| Application Security Group | N/A | Not currently supported |
+| Load Balancer | Software LB or physical LB | Use SDN Load Balancer or external |
+| Azure Firewall | N/A | Use on-prem firewall appliances |
+| VNet Peering | N/A | Networks are physical/SDN based |
+| Private Endpoint | N/A | Services run on-premises |
+| DNS Zone | On-prem DNS | Integrate with existing DNS infrastructure |
+| Bastion | Azure Arc SSH | `az ssh vm` provides secure remote access |
+
+### Storage
+
+| Public Azure | Azure Local | Notes |
+|-------------|-------------|-------|
+| Managed Disk | Virtual Hard Disk | Stored on cluster storage (S2D/Storage Spaces) |
+| OS Disk | OS Disk | Automatically created from image |
+| Data Disk | Data Disk (`virtualHardDisks`) | Create separately, attach to VM |
+| Ultra Disk | N/A | Use local NVMe/SSD for performance |
+| Premium SSD | Cluster storage tier | Performance depends on cluster storage config |
+| Standard SSD/HDD | Cluster storage tier | Tiered storage based on cluster config |
+| Disk Encryption | BitLocker | Cluster-level encryption |
+| Azure Files | SMB Shares | Use cluster file shares or Storage Spaces |
+| Blob Storage | N/A | Use Azure Storage account or local storage |
+
+### Identity & Access
+
+| Public Azure | Azure Local | Notes |
+|-------------|-------------|-------|
+| Managed Identity | Managed Identity (System-assigned) | Arc VMs support system-assigned identity |
+| User-Assigned Identity | Limited support | Check current Azure Local version |
+| Azure AD Authentication | Azure AD via Arc | Arc-enabled servers support AAD |
+| RBAC | RBAC | Same Azure RBAC model |
+| Key Vault | Key Vault (via Arc) | Access via managed identity |
+
+### Management & Monitoring
+
+| Public Azure | Azure Local | Notes |
+|-------------|-------------|-------|
+| Azure Monitor | Azure Monitor (via Arc) | Arc agent sends metrics/logs to Azure |
+| Log Analytics | Log Analytics | Same workspace, data via Arc agent |
+| VM Insights | VM Insights | Requires Arc Connected Machine agent |
+| Boot Diagnostics | Serial Console (limited) | Check Azure Local version for support |
+| Auto-shutdown | N/A | Implement via automation/scheduled tasks |
+| Backup (Azure Backup) | Azure Backup (MARS agent) | Or use on-prem backup solution |
+| Site Recovery | Azure Site Recovery | Supported for DR scenarios |
+| Update Management | Azure Update Manager | Supported via Arc |
+
+### Terraform Provider & API
+
+| Public Azure | Azure Local | Notes |
+|-------------|-------------|-------|
+| `azurerm` provider | `azapi` provider | azurerm doesn't support Azure Local VMs |
+| `azurerm_resource_group` | `azurerm_resource_group` | Same - can use azurerm |
+| ARM API | Azure Local API (`2023-09-01-preview`) | Different API namespace |
+| `Microsoft.Compute/virtualMachines` | `Microsoft.AzureStackHCI/virtualMachineInstances` | Different resource provider |
+| `Microsoft.Network/virtualNetworks` | `Microsoft.AzureStackHCI/logicalNetworks` | Different resource provider |
+| `Microsoft.Network/networkInterfaces` | `Microsoft.AzureStackHCI/networkInterfaces` | Different resource provider |
+| `Microsoft.Compute/disks` | `Microsoft.AzureStackHCI/virtualHardDisks` | Different resource provider |
+
+### CLI Commands
+
+| Public Azure | Azure Local | Notes |
+|-------------|-------------|-------|
+| `az vm create` | `az stack-hci-vm create` | Different CLI command group |
+| `az vm list` | `az stack-hci-vm list` | Different CLI command group |
+| `az vm show` | `az stack-hci-vm show` | Different CLI command group |
+| `az network vnet create` | `az stack-hci-vm network lnet create` | Logical network commands |
+| `az network nic create` | `az stack-hci-vm network nic create` | NIC commands |
+| `az vm image list` | `az stack-hci-vm image list` | Gallery image commands |
+| `az ssh vm` | `az ssh vm` | Same! Works via Arc for both |
+
+### Key Migration Considerations
+
+1. **Provider Change**: You must use `azapi` provider for Azure Local VMs (azurerm doesn't support them)
+2. **No VM Sizes**: Use explicit `processors` and `memoryMB` instead of SKU names
+3. **Image Preparation**: Images must be downloaded to the cluster before use
+4. **Network Model**: Simpler flat network model vs Azure's VNet/Subnet hierarchy
+5. **Remote Access**: Use Azure Arc SSH instead of public IPs or Bastion
+6. **Two Agents**: VMs need both MOC Guest Agent and Arc Connected Machine agent
+7. **Resource IDs**: Use full ARM resource IDs, not just names
 
 ## Prerequisites
 
